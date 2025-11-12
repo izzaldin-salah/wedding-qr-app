@@ -28,10 +28,8 @@ class _QRScanPageState extends State<QRScanPage> {
   final GlobalKey qrKey = GlobalKey(debugLabel: 'QR');
   QRViewController? controller;
   bool scanned = false;
+  bool isChecking = false;
   String resultMessage = "";
-
-  // Replace with your Apps Script URL
-  final String baseUrl = "https://script.google.com/macros/s/AKfycbxilCBEeDIInOE5a2JWC8Jft9iLYb6gcT3mtemGOSk2SQVvzO2ORBAlu6vYcGNDc9X5/exec";
 
   @override
   void reassemble() {
@@ -42,33 +40,76 @@ class _QRScanPageState extends State<QRScanPage> {
     }
   }
 
-  Future<void> checkQRCode(String id) async {
-    final url = "$baseUrl?id=$id";
+  Future<void> checkQRCode(String scannedUrl) async {
+    setState(() {
+      isChecking = true;
+    });
+
+    print("Scanned URL: $scannedUrl"); // Debug log
+
+    // The QR code contains the full URL, use it directly
     try {
-      final response = await http.get(Uri.parse(url));
+      // Add timeout to prevent hanging
+      final response = await http.get(
+        Uri.parse(scannedUrl),
+      ).timeout(Duration(seconds: 30));
+      
+      print("Response Status: ${response.statusCode}"); // Debug log
+      print("Response Body: ${response.body}"); // Debug log
+      
       if (response.statusCode == 200) {
         String body = response.body.toLowerCase();
+        
         setState(() {
-          if (body.contains("already used")) {
-            resultMessage = "⚠️ Already used";
-          } else if (body.contains("access granted")) {
-            resultMessage = "✅ Access granted";
+          // Check for different responses from the server
+          if (body.contains("already used") || body.contains("already been scanned")) {
+            resultMessage = "⚠️ Already Used\nThis guest was already checked in";
+          } else if (body.contains("access granted") || body.contains("welcome")) {
+            resultMessage = "✅ Access Granted\nGuest verified successfully";
+          } else if (body.contains("invalid") || body.contains("not found")) {
+            resultMessage = "❌ Invalid QR Code\nGuest ID not recognized";
           } else {
-            resultMessage = "❌ Invalid QR code";
+            resultMessage = "❌ Unknown Response\nPlease contact support";
           }
           scanned = true;
+          isChecking = false;
         });
       } else {
         setState(() {
-          resultMessage = "❌ Error: ${response.statusCode}";
+          resultMessage = "❌ Server Error\nStatus: ${response.statusCode}";
           scanned = true;
+          isChecking = false;
         });
       }
     } catch (e) {
+      print("Error: $e"); // Debug log
       setState(() {
-        resultMessage = "❌ Network error";
+        resultMessage = "❌ Network Error\n${e.toString()}";
         scanned = true;
+        isChecking = false;
       });
+    }
+  }
+
+  // Get gradient colors based on result
+  List<Color> _getGradientColors() {
+    if (resultMessage.contains("✅")) {
+      return [Colors.green.shade400, Colors.green.shade700];
+    } else if (resultMessage.contains("⚠️")) {
+      return [Colors.orange.shade400, Colors.orange.shade700];
+    } else {
+      return [Colors.red.shade400, Colors.red.shade700];
+    }
+  }
+
+  // Get icon based on result
+  IconData _getResultIcon() {
+    if (resultMessage.contains("✅")) {
+      return Icons.check_circle_outline;
+    } else if (resultMessage.contains("⚠️")) {
+      return Icons.warning_amber_rounded;
+    } else {
+      return Icons.cancel_outlined;
     }
   }
 
@@ -77,39 +118,139 @@ class _QRScanPageState extends State<QRScanPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text("Wedding QR Scanner"),
+        centerTitle: true,
+        elevation: 0,
       ),
-      body: scanned
+      body: isChecking
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(resultMessage, style: TextStyle(fontSize: 32)),
+                  CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.pink),
+                    strokeWidth: 5,
+                  ),
                   SizedBox(height: 20),
-                  ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          scanned = false;
-                        });
-                        controller?.resumeCamera();
-                      },
-                      child: Text("Scan Again"))
+                  Text(
+                    "Verifying...",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+                  ),
                 ],
               ),
             )
-          : QRView(
-              key: qrKey,
-              onQRViewCreated: (QRViewController ctrl) {
-                this.controller = ctrl;
-                ctrl.scannedDataStream.listen((scanData) async {
-                  if (!scanned) {
-                    scanned = true;
-                    controller?.pauseCamera();
-                    String id = scanData.code ?? "";
-                    await checkQRCode(id);
-                  }
-                });
-              },
-            ),
+          : scanned
+              ? Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: _getGradientColors(),
+                    ),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _getResultIcon(),
+                          size: 100,
+                          color: Colors.white,
+                        ),
+                        SizedBox(height: 30),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: Text(
+                            resultMessage,
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        SizedBox(height: 40),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              scanned = false;
+                              resultMessage = "";
+                            });
+                            controller?.resumeCamera();
+                          },
+                          icon: Icon(Icons.qr_code_scanner, size: 24),
+                          label: Text(
+                            "Scan Next Guest",
+                            style: TextStyle(fontSize: 18),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 40,
+                              vertical: 15,
+                            ),
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.pink,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(30),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : Stack(
+                  children: [
+                    QRView(
+                      key: qrKey,
+                      onQRViewCreated: (QRViewController ctrl) {
+                        this.controller = ctrl;
+                        ctrl.scannedDataStream.listen((scanData) async {
+                          if (!scanned && !isChecking) {
+                            scanned = true;
+                            controller?.pauseCamera();
+                            String id = scanData.code ?? "";
+                            await checkQRCode(id);
+                          }
+                        });
+                      },
+                    ),
+                    // Scanning frame overlay
+                    Center(
+                      child: Container(
+                        width: 250,
+                        height: 250,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.pink, width: 3),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    // Instructions at bottom
+                    Positioned(
+                      bottom: 50,
+                      left: 0,
+                      right: 0,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                        margin: EdgeInsets.symmetric(horizontal: 30),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          "Align QR code within frame",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 
