@@ -42,12 +42,40 @@ class _QRScanPageState extends State<QRScanPage> {
 
   // Extract number of people from HTML response
   String extractPeopleCount(String htmlBody) {
-    // Look for pattern like "<b>2</b> people" or "<b>1</b> people"
-    RegExp regex = RegExp(r'<b>(\d+)</b>\s*people', caseSensitive: false);
-    var match = regex.firstMatch(htmlBody);
-    if (match != null && match.groupCount >= 1) {
-      return match.group(1)!;
+    print("Extracting from HTML: $htmlBody"); // Debug log
+    
+    // The HTML response is escaped in the JavaScript, need to look for the encoded pattern
+    // Look for: \x3cb\x3e5\x3c\/b\x3e (which is <b>5</b> encoded)
+    // Or the plain HTML: <b>5</b>
+    
+    // First try: plain HTML pattern
+    RegExp regexPlain = RegExp(r'for\s*<b>(\d+)</b>\s*people', caseSensitive: false);
+    var matchPlain = regexPlain.firstMatch(htmlBody);
+    if (matchPlain != null && matchPlain.groupCount >= 1) {
+      String count = matchPlain.group(1)!;
+      print("Extracted count (plain): $count"); // Debug log
+      return count;
     }
+    
+    // Second try: escaped HTML pattern in userHtml JSON
+    RegExp regexEscaped = RegExp(r'\\x3cb\\x3e(\d+)\\x3c', caseSensitive: false);
+    var matchEscaped = regexEscaped.firstMatch(htmlBody);
+    if (matchEscaped != null && matchEscaped.groupCount >= 1) {
+      String count = matchEscaped.group(1)!;
+      print("Extracted count (escaped): $count"); // Debug log
+      return count;
+    }
+    
+    // Third try: any number in bold tags
+    RegExp regexAny = RegExp(r'<b>(\d+)</b>', caseSensitive: false);
+    var matches = regexAny.allMatches(htmlBody);
+    if (matches.isNotEmpty) {
+      String count = matches.last.group(1)!;
+      print("Extracted count (any bold): $count"); // Debug log
+      return count;
+    }
+    
+    print("No count found, defaulting to 1"); // Debug log
     return "1"; // default
   }
 
@@ -76,9 +104,9 @@ class _QRScanPageState extends State<QRScanPage> {
         setState(() {
           // Check for different responses from the server
           if (bodyLower.contains("already used") || bodyLower.contains("already been scanned")) {
-            resultMessage = "⚠️ Already Used\nThis guest was already checked in\n👥 $peopleCount ${peopleCount == "1" ? "person" : "people"}";
+            resultMessage = "⚠️ Already Used\nThis guest was already checked in\n👥 $peopleCount people";
           } else if (bodyLower.contains("access granted") || bodyLower.contains("welcome")) {
-            resultMessage = "✅ Access Granted\nWelcome to the wedding!\n👥 $peopleCount ${peopleCount == "1" ? "person" : "people"}";
+            resultMessage = "✅ Access Granted\nWelcome to the wedding!\n👥 $peopleCount people";
           } else if (bodyLower.contains("invalid") || bodyLower.contains("not found") || bodyLower.contains("missing id")) {
             resultMessage = "❌ Invalid QR Code\nGuest ID not recognized";
           } else {
