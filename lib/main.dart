@@ -40,6 +40,17 @@ class _QRScanPageState extends State<QRScanPage> {
     }
   }
 
+  // Extract number of people from HTML response
+  String extractPeopleCount(String htmlBody) {
+    // Look for pattern like "<b>2</b> people" or "<b>1</b> people"
+    RegExp regex = RegExp(r'<b>(\d+)</b>\s*people', caseSensitive: false);
+    var match = regex.firstMatch(htmlBody);
+    if (match != null && match.groupCount >= 1) {
+      return match.group(1)!;
+    }
+    return "1"; // default
+  }
+
   Future<void> checkQRCode(String scannedUrl) async {
     setState(() {
       isChecking = true;
@@ -58,15 +69,17 @@ class _QRScanPageState extends State<QRScanPage> {
       print("Response Body: ${response.body}"); // Debug log
       
       if (response.statusCode == 200) {
-        String body = response.body.toLowerCase();
+        String body = response.body;
+        String bodyLower = body.toLowerCase();
+        String peopleCount = extractPeopleCount(body);
         
         setState(() {
           // Check for different responses from the server
-          if (body.contains("already used") || body.contains("already been scanned")) {
-            resultMessage = "⚠️ Already Used\nThis guest was already checked in";
-          } else if (body.contains("access granted") || body.contains("welcome")) {
-            resultMessage = "✅ Access Granted\nGuest verified successfully";
-          } else if (body.contains("invalid") || body.contains("not found")) {
+          if (bodyLower.contains("already used") || bodyLower.contains("already been scanned")) {
+            resultMessage = "⚠️ Already Used\nThis guest was already checked in\n👥 $peopleCount ${peopleCount == "1" ? "person" : "people"}";
+          } else if (bodyLower.contains("access granted") || bodyLower.contains("welcome")) {
+            resultMessage = "✅ Access Granted\nWelcome to the wedding!\n👥 $peopleCount ${peopleCount == "1" ? "person" : "people"}";
+          } else if (bodyLower.contains("invalid") || bodyLower.contains("not found") || bodyLower.contains("missing id")) {
             resultMessage = "❌ Invalid QR Code\nGuest ID not recognized";
           } else {
             resultMessage = "❌ Unknown Response\nPlease contact support";
